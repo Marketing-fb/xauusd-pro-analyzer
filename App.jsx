@@ -144,10 +144,12 @@ export default function App() {
     let livePrice = symbol === 'XAUUSD' ? 2748.50 : 1.0852;
     if (symbol === 'XAUUSD') {
       try {
-        const res = await fetch('https://api.gold-api.com/price/XAU');
+        const res = await fetch('https://api.fxratesapi.com/latest?currencies=XAU');
         if (res.ok) {
           const data = await res.json();
-          if (data.price) livePrice = Number(data.price.toFixed(2));
+          if (data.rates && data.rates.XAU) {
+            livePrice = Number((1 / data.rates.XAU).toFixed(2));
+          }
         }
       } catch (e) {
         console.log('Live Gold API fetch fallback:', e);
@@ -158,20 +160,18 @@ export default function App() {
     const volatility = base * 0.0015;
     
     const candles = [];
-    const prices = [base];
-    let curr = base;
-    for (let i = 0; i < 79; i++) {
-      const delta = (Math.random() - 0.49) * volatility;
-      curr -= delta;
-      prices.push(curr);
-    }
-    prices.reverse();
-
+    let prevClose = base * 0.992;
     for (let i = 0; i < 80; i++) {
-      const open = i > 0 ? prices[i - 1] : prices[0] * 0.999;
-      const close = prices[i];
-      const high = Math.max(open, close) + Math.random() * (volatility * 0.4);
-      const low = Math.min(open, close) - Math.random() * (volatility * 0.4);
+      let close;
+      if (i === 79) {
+        close = base;
+      } else {
+        const step = (base - prevClose) / (80 - i);
+        close = prevClose + step + (Math.random() - 0.5) * (volatility * 0.5);
+      }
+      const open = i === 0 ? prevClose : candles[i - 1].close;
+      const high = Math.max(open, close) + Math.random() * (volatility * 0.3);
+      const low = Math.min(open, close) - Math.random() * (volatility * 0.3);
       candles.push({
         time: `Candle ${i + 1}`,
         open: Number(open.toFixed(symbol === 'XAUUSD' || symbol === 'USDJPY' ? 2 : 4)),
@@ -180,9 +180,10 @@ export default function App() {
         close: Number(close.toFixed(symbol === 'XAUUSD' || symbol === 'USDJPY' ? 2 : 4)),
         volume: Math.floor(Math.random() * 5000 + 1500)
       });
+      prevClose = close;
     }
 
-    const lastP = candles[candles.length - 1].close;
+    const lastP = base;
     setTickers(prev => prev.map(t => t.symbol === symbol ? { ...t, price: lastP } : t));
     setMarketData({
       symbol,

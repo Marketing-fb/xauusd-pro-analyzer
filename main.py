@@ -43,16 +43,17 @@ def fetch_live_price(symbol: str) -> float:
     if symbol == "XAUUSD":
         try:
             req = urllib.request.Request(
-                "https://api.gold-api.com/price/XAU",
+                "https://api.fxratesapi.com/latest?currencies=XAU",
                 headers={"User-Agent": "Mozilla/5.0"}
             )
-            with urllib.request.urlopen(req, timeout=3) as resp:
+            with urllib.request.urlopen(req, timeout=4) as resp:
                 data = json.loads(resp.read().decode())
-                if "price" in data and isinstance(data["price"], (int, float)):
-                    return round(float(data["price"]), 2)
+                if "rates" in data and "XAU" in data["rates"] and data["rates"]["XAU"] > 0:
+                    gold_usd = 1.0 / float(data["rates"]["XAU"])
+                    return round(gold_usd, 2)
         except Exception as e:
             print(f"Live gold price fetch fallback: {e}")
-    return SYMBOL_MAP.get(symbol, {}).get("base_price", 2745.50)
+    return SYMBOL_MAP.get(symbol, {}).get("base_price", 2748.50)
 
 class TradeRecordRequest(BaseModel):
     symbol: str = "XAUUSD"
