@@ -97,7 +97,7 @@ export default function App() {
       console.log('Backend server stream active:', e);
     }
 
-    generateFallbackData(activeSymbol, activeTimeframe);
+    await generateFallbackData(activeSymbol, activeTimeframe);
     setIsRefreshing(false);
   };
 
@@ -140,18 +140,38 @@ export default function App() {
     }
   };
 
-  const generateFallbackData = (symbol, timeframe) => {
-    const basePrices = { XAUUSD: 2748.50, EURUSD: 1.0852, GBPUSD: 1.2985, USDJPY: 152.45, DXY: 104.18 };
-    const base = basePrices[symbol] || 2748.50;
+  const generateFallbackData = async (symbol, timeframe) => {
+    let livePrice = symbol === 'XAUUSD' ? 2748.50 : 1.0852;
+    if (symbol === 'XAUUSD') {
+      try {
+        const res = await fetch('https://api.gold-api.com/price/XAU');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.price) livePrice = Number(data.price.toFixed(2));
+        }
+      } catch (e) {
+        console.log('Live Gold API fetch fallback:', e);
+      }
+    }
+
+    const base = livePrice;
+    const volatility = base * 0.0015;
     
     const candles = [];
-    let cur = base * 0.985;
+    const prices = [base];
+    let curr = base;
+    for (let i = 0; i < 79; i++) {
+      const delta = (Math.random() - 0.49) * volatility;
+      curr -= delta;
+      prices.push(curr);
+    }
+    prices.reverse();
+
     for (let i = 0; i < 80; i++) {
-      const open = cur;
-      const change = (Math.random() - 0.48) * (base * 0.003);
-      const close = open + change;
-      const high = Math.max(open, close) + Math.random() * (base * 0.0015);
-      const low = Math.min(open, close) - Math.random() * (base * 0.0015);
+      const open = i > 0 ? prices[i - 1] : prices[0] * 0.999;
+      const close = prices[i];
+      const high = Math.max(open, close) + Math.random() * (volatility * 0.4);
+      const low = Math.min(open, close) - Math.random() * (volatility * 0.4);
       candles.push({
         time: `Candle ${i + 1}`,
         open: Number(open.toFixed(symbol === 'XAUUSD' || symbol === 'USDJPY' ? 2 : 4)),
@@ -160,10 +180,10 @@ export default function App() {
         close: Number(close.toFixed(symbol === 'XAUUSD' || symbol === 'USDJPY' ? 2 : 4)),
         volume: Math.floor(Math.random() * 5000 + 1500)
       });
-      cur = close;
     }
 
     const lastP = candles[candles.length - 1].close;
+    setTickers(prev => prev.map(t => t.symbol === symbol ? { ...t, price: lastP } : t));
     setMarketData({
       symbol,
       timeframe,
