@@ -1,0 +1,76 @@
+{
+  "weights": {
+    "rsi": 1.2,
+    "macd": 1.0,
+    "ema_trend": 1.53,
+    "smc_ob": 1.85,
+    "news": 1.1
+  },
+  "stats": {
+    "total_trades": 4,
+    "wins": 3,
+    "losses": 1,
+    "win_rate": 75.0,
+    "profit_factor": 2.45,
+    "avg_rr": 2.1
+  },
+  "history": [
+    {
+      "id": 4,
+      "timestamp": "2026-09-14 13:12",
+      "symbol": "XAUUSD",
+      "type": "BUY",
+      "entry": 2805.97,
+      "sl": 2790.97,
+      "tp": 2830.97,
+      "outcome": "WIN",
+      "pnl_pips": 25.0,
+      "error_reason": null,
+      "lesson": "เข้าตามแผน Confluence ครบถ้วน (SMC OB + EMA Alignment)"
+    },
+    {
+      "id": 1,
+      "timestamp": "2026-09-14 10:30",
+      "symbol": "XAUUSD",
+      "type": "BUY",
+      "entry": 2742.5,
+      "sl": 2735.0,
+      "tp": 2758.0,
+      "outcome": "WIN",
+      "pnl_pips": 155,
+      "error_reason": null,
+      "lesson": "เข้าเทรดสำเร็จที่โซน Bullish Order Block + RSI Divergence"
+    },
+    {
+      "id": 2,
+      "timestamp": "2026-09-14 11:15",
+      "symbol": "XAUUSD",
+      "type": "SELL",
+      "entry": 2752.0,
+      "sl": 2758.0,
+      "tp": 2740.0,
+      "outcome": "LOSS",
+      "pnl_pips": -60,
+      "error_reason": "High Volatility News Spike",
+      "lesson": "โดน Stop Loss จากข่าวกระชากสวนเทรนด์หลัก (คราวหลังเลี่ยงเทรดช่วงก่อนข่าว CPI 15 นาที)"
+    },
+    {
+      "id": 3,
+      "timestamp": "2026-09-14 12:00",
+      "symbol": "XAUUSD",
+      "type": "BUY",
+      "entry": 2745.0,
+      "sl": 2738.0,
+      "tp": 2760.0,
+      "outcome": "WIN",
+      "pnl_pips": 150,
+      "error_reason": null,
+      "lesson": "สอดคล้องกับเทรนด์ EMA20/50 ใน Timeframe H1 และ H4"
+    }
+  ],
+  "error_causes": {
+    "News Volatility Spike": 3,
+    "RSI False Breakout in Range": 2,
+    "Order Block Liquidity Trap": 1
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "short_name": "XAUUSD Quant",
+  "name": "XAUUSD AI Quant Pro Analysis System",
+  "description": "ระบบวิเคราะห์ราคาทองคำ XAUUSD และ Forex ด้วย AI Quant Engine",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#090d16",
+  "theme_color": "#090d16",
+  "display": "standalone",
+  "orientation": "portrait"
+}
