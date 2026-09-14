@@ -30,9 +30,10 @@ ai_brain = AIBrainEngine()
 
 import urllib.request
 import json
+import ssl
 
 SYMBOL_MAP = {
-    "XAUUSD": {"yf": "GC=F", "name": "Gold / US Dollar", "base_price": 2745.50, "pip_size": 0.01},
+    "XAUUSD": {"yf": "GC=F", "name": "Gold / US Dollar", "base_price": 2748.50, "pip_size": 0.01},
     "EURUSD": {"yf": "EURUSD=X", "name": "Euro / US Dollar", "base_price": 1.0850, "pip_size": 0.0001},
     "GBPUSD": {"yf": "GBPUSD=X", "name": "British Pound / US Dollar", "base_price": 1.2980, "pip_size": 0.0001},
     "USDJPY": {"yf": "JPY=X", "name": "US Dollar / Japanese Yen", "base_price": 152.30, "pip_size": 0.01},
@@ -42,11 +43,14 @@ SYMBOL_MAP = {
 def fetch_live_price(symbol: str) -> float:
     if symbol == "XAUUSD":
         try:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
             req = urllib.request.Request(
                 "https://api.fxratesapi.com/latest?currencies=XAU",
                 headers={"User-Agent": "Mozilla/5.0"}
             )
-            with urllib.request.urlopen(req, timeout=4) as resp:
+            with urllib.request.urlopen(req, context=ctx, timeout=4) as resp:
                 data = json.loads(resp.read().decode())
                 if "rates" in data and "XAU" in data["rates"] and data["rates"]["XAU"] > 0:
                     gold_usd = 1.0 / float(data["rates"]["XAU"])
@@ -76,22 +80,22 @@ def generate_simulated_candles(symbol: str, timeframe: str = "H1", count: int = 
     step_minutes = minutes_map.get(timeframe, 60)
     
     candles = []
-    prices = [live_price]
-    curr = live_price
-    for _ in range(count - 1):
-        delta = np.random.normal(0, volatility)
-        curr -= delta
-        prices.append(curr)
-    prices.reverse()
+    prev_close = live_price * 0.992
     
     start_time = now - timedelta(minutes=step_minutes * count)
     for i in range(count):
         candle_time = start_time + timedelta(minutes=step_minutes * i)
-        open_p = prices[i - 1] if i > 0 else prices[0] * 0.999
-        close_p = prices[i]
-        high_p = max(open_p, close_p) + abs(np.random.normal(0, volatility * 0.4))
-        low_p = min(open_p, close_p) - abs(np.random.normal(0, volatility * 0.4))
+        if i == count - 1:
+            close_p = live_price
+        else:
+            step = (live_price - prev_close) / (count - i)
+            close_p = prev_close + step + float(np.random.normal(0, volatility * 0.4))
+            
+        open_p = prev_close if i > 0 else prev_close * 0.999
+        high_p = max(open_p, close_p) + abs(float(np.random.normal(0, volatility * 0.3)))
+        low_p = min(open_p, close_p) - abs(float(np.random.normal(0, volatility * 0.3)))
         volume = random.randint(1200, 8500)
+        
         candles.append({
             "time": candle_time.strftime("%Y-%m-%d %H:%M"),
             "timestamp": int(candle_time.timestamp()),
@@ -101,6 +105,7 @@ def generate_simulated_candles(symbol: str, timeframe: str = "H1", count: int = 
             "close": round(close_p, 2 if symbol in ["XAUUSD", "USDJPY", "DXY"] else 4),
             "volume": volume
         })
+        prev_close = close_p
         
     return candles
 
