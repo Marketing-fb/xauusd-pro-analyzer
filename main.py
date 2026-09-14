@@ -28,6 +28,9 @@ app.add_middleware(
 telegram_bot = TelegramBotHandler()
 ai_brain = AIBrainEngine()
 
+import urllib.request
+import json
+
 SYMBOL_MAP = {
     "XAUUSD": {"yf": "GC=F", "name": "Gold / US Dollar", "base_price": 2745.50, "pip_size": 0.01},
     "EURUSD": {"yf": "EURUSD=X", "name": "Euro / US Dollar", "base_price": 1.0850, "pip_size": 0.0001},
@@ -35,6 +38,21 @@ SYMBOL_MAP = {
     "USDJPY": {"yf": "JPY=X", "name": "US Dollar / Japanese Yen", "base_price": 152.30, "pip_size": 0.01},
     "DXY": {"yf": "DX-Y.NYB", "name": "US Dollar Index", "base_price": 104.20, "pip_size": 0.01}
 }
+
+def fetch_live_price(symbol: str) -> float:
+    if symbol == "XAUUSD":
+        try:
+            req = urllib.request.Request(
+                "https://api.gold-api.com/price/XAU",
+                headers={"User-Agent": "Mozilla/5.0"}
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read().decode())
+                if "price" in data and isinstance(data["price"], (int, float)):
+                    return round(float(data["price"]), 2)
+        except Exception as e:
+            print(f"Live gold price fetch fallback: {e}")
+    return SYMBOL_MAP.get(symbol, {}).get("base_price", 2745.50)
 
 class TradeRecordRequest(BaseModel):
     symbol: str = "XAUUSD"
@@ -49,26 +67,29 @@ class TelegramCmdRequest(BaseModel):
     command: str = "/signal"
 
 def generate_simulated_candles(symbol: str, timeframe: str = "H1", count: int = 120):
-    base = SYMBOL_MAP.get(symbol, SYMBOL_MAP["XAUUSD"])["base_price"]
-    volatility = base * 0.0025
+    live_price = fetch_live_price(symbol)
+    volatility = live_price * 0.0015
     
     now = datetime.now()
     minutes_map = {"M1": 1, "M5": 5, "M15": 15, "H1": 60, "H4": 240, "D1": 1440}
     step_minutes = minutes_map.get(timeframe, 60)
     
     candles = []
-    current_price = base
-    start_time = now - timedelta(minutes=step_minutes * count)
-    trend = random.choice([0.0002, -0.0002, 0.0001, 0.0003, -0.0001])
+    prices = [live_price]
+    curr = live_price
+    for _ in range(count - 1):
+        delta = np.random.normal(0, volatility)
+        curr -= delta
+        prices.append(curr)
+    prices.reverse()
     
+    start_time = now - timedelta(minutes=step_minutes * count)
     for i in range(count):
         candle_time = start_time + timedelta(minutes=step_minutes * i)
-        change = np.random.normal(0, volatility) + (trend * base)
-        open_p = current_price
-        close_p = open_p + change
-        high_p = max(open_p, close_p) + abs(np.random.normal(0, volatility * 0.5))
-        low_p = min(open_p, close_p) - abs(np.random.normal(0, volatility * 0.5))
-        
+        open_p = prices[i - 1] if i > 0 else prices[0] * 0.999
+        close_p = prices[i]
+        high_p = max(open_p, close_p) + abs(np.random.normal(0, volatility * 0.4))
+        low_p = min(open_p, close_p) - abs(np.random.normal(0, volatility * 0.4))
         volume = random.randint(1200, 8500)
         candles.append({
             "time": candle_time.strftime("%Y-%m-%d %H:%M"),
@@ -79,7 +100,6 @@ def generate_simulated_candles(symbol: str, timeframe: str = "H1", count: int = 
             "close": round(close_p, 2 if symbol in ["XAUUSD", "USDJPY", "DXY"] else 4),
             "volume": volume
         })
-        current_price = close_p
         
     return candles
 
@@ -87,17 +107,17 @@ def generate_simulated_candles(symbol: str, timeframe: str = "H1", count: int = 
 def get_tickers():
     results = []
     for sym, info in SYMBOL_MAP.items():
-        base = info["base_price"]
+        price = fetch_live_price(sym)
         change_pct = round(random.uniform(-0.85, 1.25), 2)
-        change_amt = round(base * (change_pct / 100), 2 if sym in ["XAUUSD", "USDJPY", "DXY"] else 4)
+        change_amt = round(price * (change_pct / 100), 2 if sym in ["XAUUSD", "USDJPY", "DXY"] else 4)
         results.append({
             "symbol": sym,
             "name": info["name"],
-            "price": base,
+            "price": price,
             "change_pct": change_pct,
             "change_amt": change_amt,
-            "high_24h": round(base * 1.008, 2 if sym in ["XAUUSD", "USDJPY", "DXY"] else 4),
-            "low_24h": round(base * 0.992, 2 if sym in ["XAUUSD", "USDJPY", "DXY"] else 4)
+            "high_24h": round(price * 1.008, 2 if sym in ["XAUUSD", "USDJPY", "DXY"] else 4),
+            "low_24h": round(price * 0.992, 2 if sym in ["XAUUSD", "USDJPY", "DXY"] else 4)
         })
     return {"tickers": results}
 

@@ -82,6 +82,7 @@ export default function App() {
       if (resMarket.ok && resSignals.ok && resMatrix.ok && resNews.ok) {
         const mData = await resMarket.json();
         setMarketData(mData);
+        setTickers(prev => prev.map(t => t.symbol === activeSymbol ? { ...t, price: mData.last_price } : t));
         setSignalData(await resSignals.json());
         setMatrixData(await resMatrix.json());
         setNewsData(await resNews.json());
