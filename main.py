@@ -33,31 +33,55 @@ import json
 import ssl
 
 SYMBOL_MAP = {
-    "XAUUSD": {"yf": "GC=F", "name": "Gold / US Dollar", "base_price": 2748.50, "pip_size": 0.01},
+    "XAUUSD": {"yf": "GC=F", "name": "Gold / US Dollar", "base_price": 4295.94, "pip_size": 0.01},
     "EURUSD": {"yf": "EURUSD=X", "name": "Euro / US Dollar", "base_price": 1.0850, "pip_size": 0.0001},
     "GBPUSD": {"yf": "GBPUSD=X", "name": "British Pound / US Dollar", "base_price": 1.2980, "pip_size": 0.0001},
     "USDJPY": {"yf": "JPY=X", "name": "US Dollar / Japanese Yen", "base_price": 152.30, "pip_size": 0.01},
     "DXY": {"yf": "DX-Y.NYB", "name": "US Dollar Index", "base_price": 104.20, "pip_size": 0.01}
 }
 
+LIVE_PRICE_CACHE = {}
+
 def fetch_live_price(symbol: str) -> float:
+    now = datetime.now()
+    if symbol in LIVE_PRICE_CACHE:
+        cached_price, cached_time = LIVE_PRICE_CACHE[symbol]
+        if (now - cached_time).total_seconds() < 10:
+            return cached_price
+
+    price = SYMBOL_MAP.get(symbol, {}).get("base_price", 4295.94)
     if symbol == "XAUUSD":
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        
+        # Try Gold API first
         try:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            req = urllib.request.Request(
-                "https://api.fxratesapi.com/latest?currencies=XAU",
-                headers={"User-Agent": "Mozilla/5.0"}
-            )
-            with urllib.request.urlopen(req, context=ctx, timeout=4) as resp:
-                data = json.loads(resp.read().decode())
-                if "rates" in data and "XAU" in data["rates"] and data["rates"]["XAU"] > 0:
-                    gold_usd = 1.0 / float(data["rates"]["XAU"])
-                    return round(gold_usd, 2)
+            req1 = urllib.request.Request("https://api.gold-api.com/price/XAU", headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req1, context=ctx, timeout=3) as resp1:
+                data1 = json.loads(resp1.read().decode())
+                if "price" in data1 and isinstance(data1["price"], (int, float)):
+                    price = round(float(data1["price"]), 2)
+                    LIVE_PRICE_CACHE[symbol] = (price, now)
+                    return price
         except Exception as e:
-            print(f"Live gold price fetch fallback: {e}")
-    return SYMBOL_MAP.get(symbol, {}).get("base_price", 2748.50)
+            print(f"gold-api fetch fallback: {e}")
+
+        # Fallback to FXRatesAPI
+        try:
+            req2 = urllib.request.Request("https://api.fxratesapi.com/latest?currencies=XAU", headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req2, context=ctx, timeout=3) as resp2:
+                data2 = json.loads(resp2.read().decode())
+                if "rates" in data2 and "XAU" in data2["rates"] and data2["rates"]["XAU"] > 0:
+                    gold_usd = 1.0 / float(data2["rates"]["XAU"])
+                    price = round(gold_usd, 2)
+                    LIVE_PRICE_CACHE[symbol] = (price, now)
+                    return price
+        except Exception as e:
+            print(f"fxratesapi fetch fallback: {e}")
+            
+    LIVE_PRICE_CACHE[symbol] = (price, now)
+    return price
 
 class TradeRecordRequest(BaseModel):
     symbol: str = "XAUUSD"
@@ -70,6 +94,12 @@ class TradeRecordRequest(BaseModel):
 
 class TelegramCmdRequest(BaseModel):
     command: str = "/signal"
+
+class TelegramBroadcastRequest(BaseModel):
+    bot_token: str = ""
+    chat_id: str = ""
+    symbol: str = "XAUUSD"
+    custom_message: str = ""
 
 def generate_simulated_candles(symbol: str, timeframe: str = "H1", count: int = 120):
     live_price = fetch_live_price(symbol)
@@ -416,3 +446,18 @@ def get_economic_news():
         "usd_index_bias": "SIDEWAYS / CONSOLIDATION",
         "events": events
     }
+
+@app.post("/api/telegram-cmd")
+def handle_telegram_cmd(req: TelegramCmdRequest):
+    signals = get_ai_signals(symbol="XAUUSD")
+    news = get_economic_news()
+    stats = load_memory()
+    reply = telegram_bot.process_command(req.command, signals, news, stats)
+    return {"reply": reply}
+
+@app.post("/api/telegram-broadcast")
+def handle_telegram_broadcast(req: TelegramBroadcastRequest):
+    signals = get_ai_signals(symbol=req.symbol)
+    msg = req.custom_message if req.custom_message else telegram_bot.process_command("/signal", signals, {}, {})
+    success = telegram_bot.send_broadcast_message(req.chat_id, msg, req.bot_token)
+    return {"success": success, "message": msg}

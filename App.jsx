@@ -54,7 +54,7 @@ export default function App() {
   const [brainData, setBrainData] = useState(null);
 
   const [tickers, setTickers] = useState([
-    { symbol: 'XAUUSD', name: 'Gold / US Dollar', price: 2748.50, change_pct: 0.85, change_amt: 23.20 },
+    { symbol: 'XAUUSD', name: 'Gold / US Dollar', price: 4295.94, change_pct: 0.85, change_amt: 36.50 },
     { symbol: 'EURUSD', name: 'Euro / US Dollar', price: 1.0852, change_pct: -0.18, change_amt: -0.0020 },
     { symbol: 'GBPUSD', name: 'British Pound', price: 1.2985, change_pct: 0.24, change_amt: 0.0031 },
     { symbol: 'USDJPY', name: 'US Dollar / Yen', price: 152.45, change_pct: 0.42, change_amt: 0.64 },
@@ -81,9 +81,26 @@ export default function App() {
 
       if (resMarket.ok && resSignals.ok && resMatrix.ok && resNews.ok) {
         const mData = await resMarket.json();
+        const sData = await resSignals.json();
         setMarketData(mData);
         setTickers(prev => prev.map(t => t.symbol === activeSymbol ? { ...t, price: mData.last_price } : t));
-        setSignalData(await resSignals.json());
+        
+        if (sData && mData && mData.last_price) {
+          sData.entry_price = mData.last_price;
+          const isSell = sData.signal ? sData.signal.includes('SELL') : false;
+          const offset = activeSymbol === 'XAUUSD' ? 9.0 : 0.0020;
+          if (isSell) {
+            sData.sl = Number((mData.last_price + offset).toFixed(2));
+            sData.tp1 = Number((mData.last_price - offset * 1.0).toFixed(2));
+            sData.tp2 = Number((mData.last_price - offset * 2.0).toFixed(2));
+          } else {
+            sData.sl = Number((mData.last_price - offset).toFixed(2));
+            sData.tp1 = Number((mData.last_price + offset * 1.0).toFixed(2));
+            sData.tp2 = Number((mData.last_price + offset * 2.0).toFixed(2));
+          }
+        }
+        
+        setSignalData(sData);
         setMatrixData(await resMatrix.json());
         setNewsData(await resNews.json());
         if (resLearning.ok) setLearningStats(await resLearning.json());
@@ -141,14 +158,20 @@ export default function App() {
   };
 
   const generateFallbackData = async (symbol, timeframe) => {
-    let livePrice = symbol === 'XAUUSD' ? 2748.50 : 1.0852;
+    let livePrice = symbol === 'XAUUSD' ? 4295.94 : 1.0852;
     if (symbol === 'XAUUSD') {
       try {
-        const res = await fetch('https://api.fxratesapi.com/latest?currencies=XAU');
+        const res = await fetch('https://api.gold-api.com/price/XAU');
         if (res.ok) {
           const data = await res.json();
-          if (data.rates && data.rates.XAU) {
-            livePrice = Number((1 / data.rates.XAU).toFixed(2));
+          if (data.price) livePrice = Number(data.price.toFixed(2));
+        } else {
+          const res2 = await fetch('https://api.fxratesapi.com/latest?currencies=XAU');
+          if (res2.ok) {
+            const data2 = await res2.json();
+            if (data2.rates && data2.rates.XAU) {
+              livePrice = Number((1 / data2.rates.XAU).toFixed(2));
+            }
           }
         }
       } catch (e) {
@@ -322,6 +345,7 @@ export default function App() {
               activeSymbol={activeSymbol}
               activeTimeframe={activeTimeframe}
               alerts={alerts}
+              signalData={signalData}
             />
           </div>
           <div className="space-y-4">
@@ -338,7 +362,7 @@ export default function App() {
 
         {/* Telegram Command Bot Console & Price Alerts Manager */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <TelegramBotConsole />
+          <TelegramBotConsole signalData={signalData} />
           <PriceAlertManager
             activeSymbol={activeSymbol}
             currentPrice={marketData?.last_price}
