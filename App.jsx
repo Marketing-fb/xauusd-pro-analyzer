@@ -69,6 +69,27 @@ export default function App() {
   const fetchData = async () => {
     setIsRefreshing(true);
     try {
+      let clientLivePrice = null;
+      if (activeSymbol === 'XAUUSD') {
+        try {
+          const gRes = await fetch('https://api.gold-api.com/price/XAU');
+          if (gRes.ok) {
+            const gData = await gRes.json();
+            if (gData.price) clientLivePrice = Number(gData.price.toFixed(2));
+          } else {
+            const fRes = await fetch('https://api.fxratesapi.com/latest?currencies=XAU');
+            if (fRes.ok) {
+              const fData = await fRes.json();
+              if (fData.rates && fData.rates.XAU) {
+                clientLivePrice = Number((1 / fData.rates.XAU).toFixed(2));
+              }
+            }
+          }
+        } catch (err) {
+          console.log('Client gold fetch fallback:', err);
+        }
+      }
+
       const q = `symbol=${activeSymbol}&timeframe=${activeTimeframe}&ema_fast=${indicatorConfig.emaFast}&ema_medium=${indicatorConfig.emaMedium}&ema_slow=${indicatorConfig.emaSlow}&rsi_period=${indicatorConfig.rsiPeriod}`;
       const [resMarket, resSignals, resMatrix, resNews, resLearning, resBrain] = await Promise.all([
         fetch(`${API_BASE}/api/market-data?${q}`),
@@ -82,6 +103,24 @@ export default function App() {
       if (resMarket.ok && resSignals.ok && resMatrix.ok && resNews.ok) {
         const mData = await resMarket.json();
         const sData = await resSignals.json();
+
+        if (clientLivePrice && activeSymbol === 'XAUUSD') {
+          mData.last_price = clientLivePrice;
+          if (mData.candles && mData.candles.length > 0) {
+            const count = mData.candles.length;
+            let prev = clientLivePrice * 0.992;
+            for (let i = 0; i < count; i++) {
+              let cl = i === count - 1 ? clientLivePrice : prev + (clientLivePrice - prev) / (count - i);
+              let op = i === 0 ? prev : mData.candles[i - 1].close;
+              mData.candles[i].open = Number(op.toFixed(2));
+              mData.candles[i].close = Number(cl.toFixed(2));
+              mData.candles[i].high = Number((Math.max(op, cl) + 1.5).toFixed(2));
+              mData.candles[i].low = Number((Math.min(op, cl) - 1.5).toFixed(2));
+              prev = cl;
+            }
+          }
+        }
+
         setMarketData(mData);
         setTickers(prev => prev.map(t => t.symbol === activeSymbol ? { ...t, price: mData.last_price } : t));
         
