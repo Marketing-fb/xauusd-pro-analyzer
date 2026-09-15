@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Layers, Eye, EyeOff, BarChart2, Bell, Activity, Zap } from 'lucide-react';
 
-export default function TradingChart({ marketData, activeSymbol, activeTimeframe, alerts = [] }) {
+export default function TradingChart({ marketData, activeSymbol, activeTimeframe, alerts = [], signalData = null }) {
   const canvasRef = useRef(null);
   
   const [showEMA, setShowEMA] = useState(true);
@@ -180,6 +180,72 @@ export default function TradingChart({ marketData, activeSymbol, activeTimeframe
       ctx.fillRect(x - w / 2, mainHeight - volH, w, volH);
     });
 
+    // Draw Current Live Price Line & Right Scale Live Price Badge Tag
+    const lastCandle = candles[candles.length - 1];
+    const livePriceVal = marketData.last_price || (lastCandle ? lastCandle.close : 0);
+    if (livePriceVal >= minPrice && livePriceVal <= maxPrice) {
+      const priceY = getPriceY(livePriceVal);
+      const isUp = lastCandle ? lastCandle.close >= lastCandle.open : true;
+      const themeColor = isUp ? '#10b981' : '#f43f5e';
+      
+      // Horizontal dashed live price line across full grid
+      ctx.strokeStyle = themeColor;
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(0, priceY);
+      ctx.lineTo(width - 65, priceY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      
+      // Right Axis Glowing Live Price Badge Tag
+      const badgeW = 60;
+      const badgeH = 20;
+      const badgeX = width - 64;
+      const badgeY = priceY - badgeH / 2;
+      
+      ctx.fillStyle = themeColor;
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+        ctx.fill();
+      } else {
+        ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+      }
+      
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 10px sans-serif';
+      const dec = (activeSymbol === 'XAUUSD' || activeSymbol === 'USDJPY' || activeSymbol === 'DXY') ? 2 : 4;
+      const formattedPrice = livePriceVal.toFixed(dec);
+      ctx.fillText(formattedPrice, badgeX + 7, priceY + 3.5);
+    }
+
+    // Draw Signal Level Lines (SL, TP1, TP2)
+    if (signalData) {
+      const drawSignalLine = (priceVal, labelText, strokeColor) => {
+        if (!priceVal || priceVal < minPrice || priceVal > maxPrice) return;
+        const y = getPriceY(priceVal);
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([5, 3]);
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width - 65, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        ctx.fillStyle = strokeColor;
+        ctx.fillRect(width - 65, y - 9, 60, 18);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillText(labelText, width - 60, y + 3);
+      };
+
+      if (signalData.sl) drawSignalLine(signalData.sl, `SL ${signalData.sl}`, '#f43f5e');
+      if (signalData.tp1) drawSignalLine(signalData.tp1, `TP1 ${signalData.tp1}`, '#10b981');
+      if (signalData.tp2) drawSignalLine(signalData.tp2, `TP2 ${signalData.tp2}`, '#10b981');
+    }
+
     // Draw Price Alert Lines
     if (showAlertLines && alerts.length > 0) {
       alerts.forEach(al => {
@@ -267,7 +333,7 @@ export default function TradingChart({ marketData, activeSymbol, activeTimeframe
       ctx.fillText('30', width - 60, y30 + 3);
     }
 
-  }, [marketData, showEMA, showSMC, showRSI, showAlertLines, showVolumeProfile, showSuperTrend, alerts]);
+  }, [marketData, showEMA, showSMC, showRSI, showAlertLines, showVolumeProfile, showSuperTrend, alerts, signalData]);
 
   if (!marketData) return null;
 

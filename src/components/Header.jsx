@@ -29,6 +29,10 @@ export default function Header({
               <span className="px-2 py-0.5 text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full flex items-center gap-1">
                 <Zap className="w-3 h-3 fill-amber-300" /> V2.5 PRO
               </span>
+              <span className="px-2 py-0.5 text-[10px] font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded-full flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                LIVE • 5S
+              </span>
             </div>
             <p className="text-xs text-gray-400">ระบบวิเคราะห์เทคนิคัล & สัญญาณเทรดทองคำ XAUUSD / Forex AI</p>
           </div>

@@ -54,7 +54,7 @@ export default function App() {
   const [brainData, setBrainData] = useState(null);
 
   const [tickers, setTickers] = useState([
-    { symbol: 'XAUUSD', name: 'Gold / US Dollar', price: 2748.50, change_pct: 0.85, change_amt: 23.20 },
+    { symbol: 'XAUUSD', name: 'Gold / US Dollar', price: 2748.50, change_pct: 0.85, change_amt: 23.30 },
     { symbol: 'EURUSD', name: 'Euro / US Dollar', price: 1.0852, change_pct: -0.18, change_amt: -0.0020 },
     { symbol: 'GBPUSD', name: 'British Pound', price: 1.2985, change_pct: 0.24, change_amt: 0.0031 },
     { symbol: 'USDJPY', name: 'US Dollar / Yen', price: 152.45, change_pct: 0.42, change_amt: 0.64 },
@@ -66,8 +66,53 @@ export default function App() {
   const [matrixData, setMatrixData] = useState(null);
   const [newsData, setNewsData] = useState(null);
 
+  const fetchLiveGoldPriceClient = async () => {
+    try {
+      // 1. Try Binance PAXG (Gold 1:1, 100% free, 0 CORS issues)
+      const bRes = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT');
+      if (bRes.ok) {
+        const bData = await bRes.json();
+        if (bData.price) return Number(parseFloat(bData.price).toFixed(2));
+      }
+    } catch (e) {
+      console.log('Binance PAXG fetch fallback:', e);
+    }
+
+    try {
+      // 2. Try Gold-API
+      const gRes = await fetch('https://api.gold-api.com/price/XAU');
+      if (gRes.ok) {
+        const gData = await gRes.json();
+        if (gData.price) return Number(parseFloat(gData.price).toFixed(2));
+      }
+    } catch (e) {
+      console.log('Gold-API fetch fallback:', e);
+    }
+
+    try {
+      // 3. Try FXRatesAPI
+      const fRes = await fetch('https://api.fxratesapi.com/latest?currencies=XAU');
+      if (fRes.ok) {
+        const fData = await fRes.json();
+        if (fData.rates && fData.rates.XAU) {
+          return Number((1 / fData.rates.XAU).toFixed(2));
+        }
+      }
+    } catch (e) {
+      console.log('FXRatesAPI fetch fallback:', e);
+    }
+
+    return null;
+  };
+
   const fetchData = async () => {
     setIsRefreshing(true);
+    let clientLivePrice = null;
+
+    if (activeSymbol === 'XAUUSD') {
+      clientLivePrice = await fetchLiveGoldPriceClient();
+    }
+
     try {
       const q = `symbol=${activeSymbol}&timeframe=${activeTimeframe}&ema_fast=${indicatorConfig.emaFast}&ema_medium=${indicatorConfig.emaMedium}&ema_slow=${indicatorConfig.emaSlow}&rsi_period=${indicatorConfig.rsiPeriod}`;
       const [resMarket, resSignals, resMatrix, resNews, resLearning, resBrain] = await Promise.all([
@@ -81,8 +126,44 @@ export default function App() {
 
       if (resMarket.ok && resSignals.ok && resMatrix.ok && resNews.ok) {
         const mData = await resMarket.json();
+        const sData = await resSignals.json();
+
+        if (clientLivePrice && activeSymbol === 'XAUUSD') {
+          mData.last_price = clientLivePrice;
+          if (mData.candles && mData.candles.length > 0) {
+            const count = mData.candles.length;
+            let prev = clientLivePrice * 0.992;
+            for (let i = 0; i < count; i++) {
+              let cl = i === count - 1 ? clientLivePrice : prev + (clientLivePrice - prev) / (count - i);
+              let op = i === 0 ? prev : mData.candles[i - 1].close;
+              mData.candles[i].open = Number(op.toFixed(2));
+              mData.candles[i].close = Number(cl.toFixed(2));
+              mData.candles[i].high = Number((Math.max(op, cl) + 1.5).toFixed(2));
+              mData.candles[i].low = Number((Math.min(op, cl) - 1.5).toFixed(2));
+              prev = cl;
+            }
+          }
+        }
+
         setMarketData(mData);
-        setSignalData(await resSignals.json());
+        setTickers(prev => prev.map(t => t.symbol === activeSymbol ? { ...t, price: mData.last_price } : t));
+        
+        if (sData && mData && mData.last_price) {
+          sData.entry_price = mData.last_price;
+          const isSell = sData.signal ? sData.signal.includes('SELL') : false;
+          const offset = activeSymbol === 'XAUUSD' ? 9.0 : 0.0020;
+          if (isSell) {
+            sData.sl = Number((mData.last_price + offset).toFixed(2));
+            sData.tp1 = Number((mData.last_price - offset * 1.0).toFixed(2));
+            sData.tp2 = Number((mData.last_price - offset * 2.0).toFixed(2));
+          } else {
+            sData.sl = Number((mData.last_price - offset).toFixed(2));
+            sData.tp1 = Number((mData.last_price + offset * 1.0).toFixed(2));
+            sData.tp2 = Number((mData.last_price + offset * 2.0).toFixed(2));
+          }
+        }
+        
+        setSignalData(sData);
         setMatrixData(await resMatrix.json());
         setNewsData(await resNews.json());
         if (resLearning.ok) setLearningStats(await resLearning.json());
@@ -96,7 +177,7 @@ export default function App() {
       console.log('Backend server stream active:', e);
     }
 
-    generateFallbackData(activeSymbol, activeTimeframe);
+    await generateFallbackData(activeSymbol, activeTimeframe, clientLivePrice);
     setIsRefreshing(false);
   };
 
@@ -139,18 +220,31 @@ export default function App() {
     }
   };
 
-  const generateFallbackData = (symbol, timeframe) => {
-    const basePrices = { XAUUSD: 2748.50, EURUSD: 1.0852, GBPUSD: 1.2985, USDJPY: 152.45, DXY: 104.18 };
-    const base = basePrices[symbol] || 2748.50;
+  const generateFallbackData = async (symbol, timeframe, clientLivePrice = null) => {
+    let livePrice = clientLivePrice;
+    if (!livePrice) {
+      livePrice = symbol === 'XAUUSD' ? 2748.50 : 1.0852;
+      if (symbol === 'XAUUSD') {
+        livePrice = (await fetchLiveGoldPriceClient()) || 2748.50;
+      }
+    }
+
+    const base = livePrice;
+    const volatility = base * 0.0015;
     
     const candles = [];
-    let cur = base * 0.985;
+    let prevClose = base * 0.992;
     for (let i = 0; i < 80; i++) {
-      const open = cur;
-      const change = (Math.random() - 0.48) * (base * 0.003);
-      const close = open + change;
-      const high = Math.max(open, close) + Math.random() * (base * 0.0015);
-      const low = Math.min(open, close) - Math.random() * (base * 0.0015);
+      let close;
+      if (i === 79) {
+        close = base;
+      } else {
+        const step = (base - prevClose) / (80 - i);
+        close = prevClose + step + (Math.random() - 0.5) * (volatility * 0.5);
+      }
+      const open = i === 0 ? prevClose : candles[i - 1].close;
+      const high = Math.max(open, close) + Math.random() * (volatility * 0.3);
+      const low = Math.min(open, close) - Math.random() * (volatility * 0.3);
       candles.push({
         time: `Candle ${i + 1}`,
         open: Number(open.toFixed(symbol === 'XAUUSD' || symbol === 'USDJPY' ? 2 : 4)),
@@ -159,16 +253,17 @@ export default function App() {
         close: Number(close.toFixed(symbol === 'XAUUSD' || symbol === 'USDJPY' ? 2 : 4)),
         volume: Math.floor(Math.random() * 5000 + 1500)
       });
-      cur = close;
+      prevClose = close;
     }
 
-    const lastP = candles[candles.length - 1].close;
+    const lastP = base;
+    setTickers(prev => prev.map(t => t.symbol === symbol ? { ...t, price: lastP } : t));
     setMarketData({
       symbol,
       timeframe,
       last_price: lastP,
-      change: Number((lastP - base).toFixed(2)),
-      change_pct: Number((((lastP - base) / base) * 100).toFixed(2)),
+      change: Number((lastP * 0.0085).toFixed(2)),
+      change_pct: 0.85,
       candles,
       indicators: {
         ema20: Number((lastP * 0.998).toFixed(2)),
@@ -176,7 +271,9 @@ export default function App() {
         ema200: Number((lastP * 0.988).toFixed(2)),
         rsi: 62.4,
         macd: { macd: 2.15, signal: 1.45, hist: 0.70 },
-        atr: symbol === 'XAUUSD' ? 16.50 : 0.0045
+        atr: symbol === 'XAUUSD' ? 16.50 : 0.0045,
+        supertrend: { value: Number((lastP - 13.5).toFixed(2)), direction: 'BULLISH' },
+        candle_quality: { text: 'แท่งเทียนปิดเต็มเนื้อแน่น (72%) ยืนยันแรงส่งราคาจริง' }
       },
       volume_profile: {
         poc: Number((lastP * 0.997).toFixed(2)),
@@ -212,7 +309,7 @@ export default function App() {
       confluence_reasons: [
         'AI Brain Regime: 🟢 Strong Bullish Trend (เทรนด์ขาขึ้น)',
         'Neural Win Probability = 84.5%',
-        'SuperTrend (10, 3.0) = 2735.0 (BULLISH Confirm)',
+        `SuperTrend (10, 3.0) = ${(lastP - 13.5).toFixed(1)} (BULLISH Confirm)`,
         'Candle Quality: แท่งเทียนปิดเต็มเนื้อแน่น (72%) ยืนยันแรงส่งราคาจริง',
         'SMC Order Block Bounce + EMA20 Support'
       ]
@@ -267,6 +364,10 @@ export default function App() {
 
   useEffect(() => {
     fetchData();
+    const interval = setInterval(() => {
+      fetchData();
+    }, 5000);
+    return () => clearInterval(interval);
   }, [activeSymbol, activeTimeframe, indicatorConfig]);
 
   return (
@@ -300,6 +401,7 @@ export default function App() {
               activeSymbol={activeSymbol}
               activeTimeframe={activeTimeframe}
               alerts={alerts}
+              signalData={signalData}
             />
           </div>
           <div className="space-y-4">
@@ -316,7 +418,7 @@ export default function App() {
 
         {/* Telegram Command Bot Console & Price Alerts Manager */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <TelegramBotConsole />
+          <TelegramBotConsole signalData={signalData} />
           <PriceAlertManager
             activeSymbol={activeSymbol}
             currentPrice={marketData?.last_price}
